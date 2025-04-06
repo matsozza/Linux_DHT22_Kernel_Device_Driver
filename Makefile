@@ -19,6 +19,23 @@ all:
 	make -C $(KDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) ARCH=$(ARCH) KBUILD_MODPOST_WARN=1 modules
 	scp dht22_kernel.ko rpi.local:~
 
+install:
+	@echo "\n------------------------------------------------"
+	@echo "Installing module in source (removing old if needed)" | fold -w 48
+	@echo "------------------------------------------------"
+	- ssh rpi.local 'sudo rmmod dht22_kernel'
+	ssh rpi.local 'sudo insmod dht22_kernel.ko'
+
+	@echo "\n------------------------------------------------"
+	@echo "Checking kernel logs" | fold -w 48
+	@echo "------------------------------------------------"
+	ssh rpi.local 'dmesg | tail'
+
+	@echo "\n------------------------------------------------"
+	@echo "Reading from device driver" | fold -w 48
+	@echo "------------------------------------------------"
+	ssh rpi.local 'sudo cat /dev/dht22'
+
 target:
 	@echo "\n------------------------------------------------"
 	@echo "Copying to target" | fold -w 48
