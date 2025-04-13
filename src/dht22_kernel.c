@@ -109,8 +109,6 @@ static int dht22_release(struct inode *inode, struct file *file)
 static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_t *offset)
 {
     DHT22_data_t *returnData = file->private_data;
-    const char *msg;
-    size_t msg_len;
 
     if (*offset == 0)
     {
@@ -121,8 +119,8 @@ static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_
         }
     }
 
-    debug("\nLEN: %d", len);
-    debug("\nOFFSET: %d", *offset);
+    debug("\nLEN: %d", (int)len);
+    debug("\nOFFSET: %d", (int)*offset);
 
     // Return result to user-space call
 
