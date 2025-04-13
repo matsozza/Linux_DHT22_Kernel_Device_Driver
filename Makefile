@@ -1,10 +1,17 @@
-# Nome do módulo
+# Module name
 obj-m := dht22_kernel.o
 
-# Diretório raiz do kernel clonado (ajuste o caminho conforme necessário)
+# Source files
+SRC_FILES := $(wildcard *.c *.h)
+
+# Target destination
+TAR_DEV := rpi.local
+TAR_DEST := ~
+
+# Linux Kernel directory (or Raspberry Pi kernel) for ocmpilation
 KDIR := ./linux
 
-# Diretório atual
+# Current directory
 PWD := $(shell pwd)
 
 # Cross-Compiler and Architecture
@@ -15,26 +22,30 @@ all:
 	@echo "\n------------------------------------------------"
 	@echo "Compiling source files to kernel object" | fold -w 48
 	@echo "------------------------------------------------"
-	clang-format -i dht22_kernel.c --style=Microsoft --verbose
+	-clang-format -i $(SRC_FILES) --style=Microsoft --verbose # Try to do linting, if available
 	make -C $(KDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) ARCH=$(ARCH) KBUILD_MODPOST_WARN=1 modules
-	scp dht22_kernel.ko rpi.local:~
 
 install:
 	@echo "\n------------------------------------------------"
+	@echo "Tranferring Kernel module to Target" | fold -w 48
+	@echo "------------------------------------------------"
+	scp $(patsubst %.o, %.ko, $(obj-m)) $(TAR_DEV):$(TAR_DEST)
+
+	@echo "\n------------------------------------------------"
 	@echo "Installing module in source (removing old if needed)" | fold -w 48
 	@echo "------------------------------------------------"
-	- ssh rpi.local 'sudo rmmod dht22_kernel'
-	ssh rpi.local 'sudo insmod dht22_kernel.ko'
+	- ssh rpi.local 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
+	ssh rpi.local 'sudo insmod $(patsubst %.o, %.ko, $(obj-m))'
 
 	@echo "\n------------------------------------------------"
 	@echo "Checking kernel logs" | fold -w 48
 	@echo "------------------------------------------------"
-	ssh rpi.local 'dmesg | tail'
+	ssh $(TAR_DEV) 'dmesg | tail'
 
 	@echo "\n------------------------------------------------"
-	@echo "Reading from device driver" | fold -w 48
+	@echo "Testing read from device driver" | fold -w 48
 	@echo "------------------------------------------------"
-	#ssh rpi.local 'sudo cat /dev/dht22'
+	- ssh $(TAR_DEV) 'sudo hexdump -C /dev/dht22'
 
 clean:
 	@echo "\n------------------------------------------------"
