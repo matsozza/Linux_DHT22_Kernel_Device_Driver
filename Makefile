@@ -1,3 +1,5 @@
+obj-m := dht22_kernel.o
+
 # Current directory
 PWD := $(shell pwd)
 
@@ -8,6 +10,9 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/*.h)
 # Target destination
 TAR_DEV := rpi.local
 TAR_DEST := ~
+
+# Kernel object file
+K_OBJ_FILE = $(patsubst %.o,%.ko,$(obj-m))
 
 # Linux Kernel directory (or Raspberry Pi kernel) for ocmpilation
 KDIR := ./linux
@@ -27,13 +32,13 @@ install:
 	@echo "\n------------------------------------------------"
 	@echo "Tranferring Kernel module to Target" | fold -w 48
 	@echo "------------------------------------------------"
-	scp $(patsubst %.o, %.ko, $(obj-m)) $(TAR_DEV):$(TAR_DEST)
+	scp $(SRC_DIR)/$(K_OBJ_FILE) $(TAR_DEV):$(TAR_DEST)
 
 	@echo "\n------------------------------------------------"
 	@echo "Installing module in source (removing old if needed)" | fold -w 48
 	@echo "------------------------------------------------"
 	- ssh rpi.local 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
-	ssh rpi.local 'sudo insmod $(patsubst %.o, %.ko, $(obj-m))'
+	ssh rpi.local 'sudo insmod $(K_OBJ_FILE)'
 
 	@echo "\n------------------------------------------------"
 	@echo "Checking kernel logs" | fold -w 48

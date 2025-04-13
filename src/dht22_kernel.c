@@ -20,8 +20,8 @@
 #define DHT_GPIO_QUERY 22
 #define DHT_GPIO_OFFSET 512
 #define DEVICE_NAME "dht22"
-#define DEBUG 1
-#if DEBUG == 1
+#define DEBUG 1 /* Debug messages for Kernel module functionality */
+#if DEBUG == 0
 #define debug(cmd, ...) printk(cmd, ##__VA_ARGS__)
 #else
 #define debug(cmd, ...)                                                                                                \
@@ -67,7 +67,7 @@ static int dht22_open(struct inode *inode, struct file *file)
 {
     if (!mutex_trylock(&dht22_mutex))
     {
-        debug("DHT22 Kernel - Resource is busy!");
+        printk("DHT22 Kernel - Resource is busy!");
         return -EBUSY;
     }
 
@@ -77,7 +77,7 @@ static int dht22_open(struct inode *inode, struct file *file)
 
     if (ret)
     {
-        debug("DHT Kernel  - Error - Failed to set query pin as interruptable");
+        printk("DHT Kernel  - Error - Failed to set query pin as interruptable");
         mutex_unlock(&dht22_mutex);
         return -EPERM;
     }
@@ -86,7 +86,7 @@ static int dht22_open(struct inode *inode, struct file *file)
     data = kzalloc(sizeof(DHT22_data_t), GFP_KERNEL);
     if (!data)
     {
-        debug("DHT22 Kernel - Error - Unable to allocate memory in the file space");
+        printk("DHT22 Kernel - Error - Unable to allocate memory in the file space");
         mutex_unlock(&dht22_mutex);
         return -ENOMEM;
     }
@@ -110,19 +110,16 @@ static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_
 {
     DHT22_data_t *returnData = file->private_data;
 
+    // Query the sensor if first entry in the function
     if (*offset == 0)
     {
         querySensor(returnData);
-        while (returnData->done == 0)
+        if (returnData->done != 1)
         {
-            cpu_relax();
+            debug("DHT22 Kernel - Error - Unable to read from the sensor");
+            return -EIO;
         }
     }
-
-    debug("\nLEN: %d", (int)len);
-    debug("\nOFFSET: %d", (int)*offset);
-
-    // Return result to user-space call
 
     // If offset pointer matches message len (or more), finish
     if (*offset >= sizeof(DHT22_data_t))
@@ -186,7 +183,7 @@ static int __init dht22_init(void)
     dht22_gpio = gpio_to_desc(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
     if (!dht22_gpio)
     {
-        debug("DHT22 Kernel - Error getting pin for data query\n");
+        printk("DHT22 Kernel - Error getting pin for data query\n");
         return -ENODEV;
     }
 
@@ -201,13 +198,13 @@ static int __init dht22_init(void)
     debug("DHT22 Kernel - Data query pin successfully requested\n");
 
     // End of device registering - return success.
-    pr_info("DHT22 driver loaded! Device created at /dev/%s\n", DEVICE_NAME);
+    printk("DHT22 driver loaded! Device created at /dev/%s\n", DEVICE_NAME);
     return 0;
 }
 
 static void __exit dht22_exit(void)
 {
-    debug(KERN_INFO "DHT22 driver unloaded\n");
+    printk("DHT22 driver unloaded\n");
 
     // Desativa interrupção (se registrada)
     if (irq > 0)
@@ -237,7 +234,7 @@ void querySensor(DHT22_data_t *returnData)
     status = gpiod_direction_output(dht22_gpio, 1);
     if (status)
     {
-        debug("DHT22 Kernel - Error -  Error setting data query pin to output\n");
+        printk("DHT22 Kernel - Error -  Error setting data query pin to output\n");
         returnData->validity = 0;
     }
     debug("DHT22 Kernel - Query pin set as output");
@@ -258,7 +255,7 @@ void querySensor(DHT22_data_t *returnData)
     status = gpiod_direction_input(dht22_gpio);
     if (status)
     {
-        debug("DHT22 Kernel - Error - Error setting data query pin to input\n");
+        printk("DHT22 Kernel - Error - Error setting data query pin to input\n");
         returnData->validity = 0;
     }
     debug("DHT22 Kernel - Query pin set as input");
@@ -288,7 +285,7 @@ void querySensor(DHT22_data_t *returnData)
 
         if (syncCntr != 1)
         {
-            debug("DHT22 Kernel - Error - No sync pulses (80us) found");
+            printk("DHT22 Kernel - Error - No sync pulses (80us) found");
             returnData->validity = 0;
         }
         else
@@ -319,9 +316,9 @@ void querySensor(DHT22_data_t *returnData)
                 }
                 else
                 {
-                    debug("DHT22 Kernel - Error - Wrong timing -> %d and %d on "
-                          "idx %d",
-                          timeBuffer[idxBuf], timeBuffer[idxBuf + 1], idxBuf);
+                    printk("DHT22 Kernel - Error - Wrong timing -> %d and %d on "
+                           "idx %d",
+                           timeBuffer[idxBuf], timeBuffer[idxBuf + 1], idxBuf);
                     returnData->validity = 0;
                 }
                 idxData++;
@@ -337,9 +334,9 @@ void querySensor(DHT22_data_t *returnData)
 
             if (returnData->CRC != CRC_calc)
             {
-                debug("DHT22 Kernel - Error - Wrong CRC -> Received %d and "
-                      "Calculated %d",
-                      returnData->CRC, CRC_calc);
+                printk("DHT22 Kernel - Error - Wrong CRC -> Received %d and "
+                       "Calculated %d",
+                       returnData->CRC, CRC_calc);
                 returnData->validity = 0;
             }
             else
@@ -350,7 +347,7 @@ void querySensor(DHT22_data_t *returnData)
     }
     else
     {
-        debug("DHT22 Kernel - Error - Missing edges");
+        printk("DHT22 Kernel - Error - Missing edges");
         returnData->validity = 0;
     }
 
