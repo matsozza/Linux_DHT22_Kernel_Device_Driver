@@ -1,3 +1,4 @@
+// ----------------------------------------------------- Includes ------------------------------------------------------
 #include <linux/cdev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -15,12 +16,11 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
+// ------------------------------------------------ Macros & Defines ---------------------------------------------------
 #define DHT_GPIO_QUERY 22
 #define DHT_GPIO_OFFSET 512
 #define DEVICE_NAME "dht22"
-
 #define DEBUG 1
-
 #if DEBUG == 1
 #define debug(cmd, ...) printk(cmd, ##__VA_ARGS__)
 #else
@@ -29,7 +29,7 @@
     {                                                                                                                  \
     } while (0)
 #endif
-
+// ------------------------------------------------------ Typedef ------------------------------------------------------
 typedef struct
 {
     uint16_t temperature;
@@ -39,17 +39,20 @@ typedef struct
     uint8_t done;
 } DHT22_data_t;
 
-// static DHT22_data_t returnData;
-
+// ---------------------------------------------------- Global Vars ----------------------------------------------------
+static DEFINE_MUTEX(dht22_mutex);
 static dev_t dev_num;
 static struct cdev dht22_cdev;
 static struct class *dht22_class;
-
 static struct gpio_desc *dht22_gpio;
+uint64_t prevTime_us = 0, currTime_us = 0;
 int irq_number, irq = -1;
-uint16_t timeBuffer[86];
-uint16_t nInterrupts = 0;
-u64 prevTime_us = 0, currTime_us = 0;
+uint16_t timeBuffer[86], nInterrupts = 0;
+
+// ----------------------------------------------------- Prototypes ----------------------------------------------------
+void querySensor(DHT22_data_t *returnData);
+
+// ---------------------------------------------------- Functions ------------------------------------------------------
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
@@ -62,19 +65,34 @@ static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 
 static int dht22_open(struct inode *inode, struct file *file)
 {
+    if (!mutex_trylock(&dht22_mutex))
+    {
+        debug("DHT22 Kernel - Resource is busy!");
+        return -EBUSY;
+    }
+
     // Configure the Query pin as interruptable
     irq = gpio_to_irq(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
     int ret = request_irq(irq, dht22_irq_handler, IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, "dht22_irq", dht22_gpio);
+
     if (ret)
+    {
         debug("DHT Kernel  - Error - Failed to set query pin as interruptable");
-    debug("DHT22 Kernel - Query pin configured to accept interrupts");
+        mutex_unlock(&dht22_mutex);
+        return -EPERM;
+    }
 
     DHT22_data_t *data;
     data = kzalloc(sizeof(DHT22_data_t), GFP_KERNEL);
     if (!data)
+    {
+        debug("DHT22 Kernel - Error - Unable to allocate memory in the file space");
+        mutex_unlock(&dht22_mutex);
         return -ENOMEM;
+    }
     file->private_data = data;
 
+    debug("DHT22 Kernel - File opened succesfully");
     return 0;
 }
 
@@ -82,10 +100,135 @@ static int dht22_release(struct inode *inode, struct file *file)
 {
     // Configure pin to ignore interrupts
     free_irq(irq, dht22_gpio);
-    debug("DHT22 Kernel - Query pin reset to ignore interrupts");
     kfree(file->private_data);
-
+    debug("DHT22 Kernel - File released succesfully");
+    mutex_unlock(&dht22_mutex);
     return 0;
+}
+
+static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_t *offset)
+{
+    DHT22_data_t *returnData = file->private_data;
+    const char *msg;
+    size_t msg_len;
+
+    if (*offset == 0)
+    {
+        querySensor(returnData);
+        while (returnData->done == 0)
+        {
+            cpu_relax();
+        }
+    }
+
+    debug("\nLEN: %d", len);
+    debug("\nOFFSET: %d", *offset);
+
+    // Return result to user-space call
+
+    // If offset pointer matches message len (or more), finish
+    if (*offset >= sizeof(DHT22_data_t))
+    {
+        return 0;
+    }
+
+    // If asking to read more info than available, adjust 'len'
+    if (len > (sizeof(DHT22_data_t) - *offset))
+        len = sizeof(DHT22_data_t) - *offset;
+
+    if (copy_to_user(buf, (char *)returnData + *offset, len))
+        return -EFAULT;
+
+    *offset += len;
+    return len;
+}
+
+static struct file_operations fops = {
+    .owner = THIS_MODULE,
+    .open = dht22_open,
+    .read = dht22_read,
+    .release = dht22_release,
+};
+
+static int __init dht22_init(void)
+{
+    int ret;
+
+    // Aloca major/minor dinamicamente
+    ret = alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME);
+    if (ret < 0)
+    {
+        pr_err("Failed to allocate char device region\n");
+        return ret;
+    }
+
+    // Inicializa a estrutura cdev e registra
+    cdev_init(&dht22_cdev, &fops);
+    dht22_cdev.owner = THIS_MODULE;
+    ret = cdev_add(&dht22_cdev, dev_num, 1);
+    if (ret < 0)
+    {
+        unregister_chrdev_region(dev_num, 1);
+        pr_err("Failed to add cdev\n");
+        return ret;
+    }
+
+    // Cria classe e dispositivo em /dev
+    dht22_class = class_create("dht22_class");
+    if (IS_ERR(dht22_class))
+    {
+        cdev_del(&dht22_cdev);
+        unregister_chrdev_region(dev_num, 1);
+        pr_err("Failed to create class\n");
+        return PTR_ERR(dht22_class);
+    }
+    device_create(dht22_class, NULL, dev_num, NULL, DEVICE_NAME);
+
+    // Configure the GPIO pins
+    dht22_gpio = gpio_to_desc(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
+    if (!dht22_gpio)
+    {
+        debug("DHT22 Kernel - Error getting pin for data query\n");
+        return -ENODEV;
+    }
+
+    /*
+    ret = gpio_request(DHT_GPIO_OFFSET + DHT_GPIO_QUERY, "dht22_data");
+    if (ret) {
+        pr_err("DHT22 Kernel - GPIO already in use or request failed\n");
+        return ret;
+    }
+    */
+
+    debug("DHT22 Kernel - Data query pin successfully requested\n");
+
+    // End of device registering - return success.
+    pr_info("DHT22 driver loaded! Device created at /dev/%s\n", DEVICE_NAME);
+    return 0;
+}
+
+static void __exit dht22_exit(void)
+{
+    debug(KERN_INFO "DHT22 driver unloaded\n");
+
+    // Desativa interrupção (se registrada)
+    if (irq > 0)
+        free_irq(irq, dht22_gpio);
+
+    // Libera o GPIO
+    if (dht22_gpio)
+        gpiod_put(dht22_gpio);
+
+    // Remove o device (se criado)
+    if (dev_num)
+        device_destroy(dht22_class, dev_num);
+
+    // Destroi a classe
+    if (dht22_class)
+        class_destroy(dht22_class);
+
+    // Libera o número major (se alocado)
+    unregister_chrdev_region(dev_num, 1);
 }
 
 void querySensor(DHT22_data_t *returnData)
@@ -229,134 +372,9 @@ void querySensor(DHT22_data_t *returnData)
     nInterrupts = 0;
 }
 
-static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_t *offset)
-{
-    DHT22_data_t *returnData = file->private_data;
-    const char *msg;
-    size_t msg_len;
-
-    if (*offset == 0)
-    {
-        querySensor(returnData);
-        while (returnData->done == 0)
-        {
-            cpu_relax();
-        }
-    }
-
-    debug("\nLEN: %d", len);
-    debug("\nOFFSET: %d", *offset);
-
-    // Return result to user-space call
-
-    // If offset pointer matches message len (or more), finish
-    if (*offset >= sizeof(DHT22_data_t))
-    {
-        return 0;
-    }
-
-    // If asking to read more info than available, adjust 'len'
-    if (len > (sizeof(DHT22_data_t) - *offset))
-        len = sizeof(DHT22_data_t) - *offset;
-
-    if (copy_to_user(buf, (char *)returnData + *offset, len))
-        return -EFAULT;
-
-    *offset += len;
-    return len;
-}
-
-static struct file_operations fops = {
-    .owner = THIS_MODULE,
-    .open = dht22_open,
-    .read = dht22_read,
-    .release = dht22_release,
-};
-
-static int __init dht22_init(void)
-{
-    int ret;
-
-    // Aloca major/minor dinamicamente
-    ret = alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME);
-    if (ret < 0)
-    {
-        pr_err("Failed to allocate char device region\n");
-        return ret;
-    }
-
-    // Inicializa a estrutura cdev e registra
-    cdev_init(&dht22_cdev, &fops);
-    dht22_cdev.owner = THIS_MODULE;
-    ret = cdev_add(&dht22_cdev, dev_num, 1);
-    if (ret < 0)
-    {
-        unregister_chrdev_region(dev_num, 1);
-        pr_err("Failed to add cdev\n");
-        return ret;
-    }
-
-    // Cria classe e dispositivo em /dev
-    dht22_class = class_create("dht22_class");
-    if (IS_ERR(dht22_class))
-    {
-        cdev_del(&dht22_cdev);
-        unregister_chrdev_region(dev_num, 1);
-        pr_err("Failed to create class\n");
-        return PTR_ERR(dht22_class);
-    }
-    device_create(dht22_class, NULL, dev_num, NULL, DEVICE_NAME);
-
-    // Configure the GPIO pins
-    dht22_gpio = gpio_to_desc(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
-    if (!dht22_gpio)
-    {
-        debug("DHT22 Kernel - Error getting pin for data query\n");
-        return -ENODEV;
-    }
-
-    /*
-    ret = gpio_request(DHT_GPIO_OFFSET + DHT_GPIO_QUERY, "dht22_data");
-    if (ret) {
-        pr_err("DHT22 Kernel - GPIO already in use or request failed\n");
-        return ret;
-    }
-    */
-
-    debug("DHT22 Kernel - Data query pin successfully requested\n");
-
-    // End of device registering - return success.
-    pr_info("DHT22 driver loaded! Device created at /dev/%s\n", DEVICE_NAME);
-    return 0;
-}
-
-static void __exit dht22_exit(void)
-{
-    debug(KERN_INFO "DHT22 driver unloaded\n");
-
-    // Desativa interrupção (se registrada)
-    if (irq > 0)
-        free_irq(irq, dht22_gpio);
-
-    // Libera o GPIO
-    if (dht22_gpio)
-        gpiod_put(dht22_gpio);
-
-    // Remove o device (se criado)
-    if (dev_num)
-        device_destroy(dht22_class, dev_num);
-
-    // Destroi a classe
-    if (dht22_class)
-        class_destroy(dht22_class);
-
-    // Libera o número major (se alocado)
-    unregister_chrdev_region(dev_num, 1);
-}
-
+// ------------------------------------------------ Module metadata --------------------------------------------------
 module_init(dht22_init);
 module_exit(dht22_exit);
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Matheus Sozza");
 MODULE_DESCRIPTION("Simple device driver for interfacing with the DHT22 "
