@@ -1,27 +1,24 @@
 // ----------------------------------------------------- Includes ------------------------------------------------------
 #include <linux/cdev.h>
 #include <linux/delay.h>
-#include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
-#include <linux/init.h>
 #include <linux/interrupt.h>
-#include <linux/irq.h>
-#include <linux/irqreturn.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/types.h>
 #include <linux/uaccess.h>
 
 // ------------------------------------------------ Macros & Defines ---------------------------------------------------
 #define DHT_GPIO_QUERY 22
 #define DHT_GPIO_OFFSET 512
 #define DEVICE_NAME "dht22"
-#define DEBUG 1 /* Debug messages for Kernel module functionality */
-#if DEBUG == 0
+#define DEBUG 0 /* Debug messages for Kernel module functionality */
+
+#if DEBUG == 1
 #define debug(cmd, ...) printk(cmd, ##__VA_ARGS__)
 #else
 #define debug(cmd, ...)                                                                                                \
@@ -236,14 +233,13 @@ void querySensor(DHT22_data_t *returnData)
     {
         printk("DHT22 Kernel - Error -  Error setting data query pin to output\n");
         returnData->validity = 0;
+        return;
     }
     debug("DHT22 Kernel - Query pin set as output");
 
     // Get the first reference timestamp - before querying the sensor
     prevTime_us = ktime_to_ns(ktime_get());
-    debug("DHT22 Kernel - First timestamp captured before first trigger - %llu "
-          "us.",
-          prevTime_us);
+    debug("DHT22 Kernel - First timestamp before first edge - %llu us.", prevTime_us);
 
     // Query the DHT22
     gpiod_set_value(dht22_gpio, 0); // Set LOW
@@ -257,6 +253,7 @@ void querySensor(DHT22_data_t *returnData)
     {
         printk("DHT22 Kernel - Error - Error setting data query pin to input\n");
         returnData->validity = 0;
+        return;
     }
     debug("DHT22 Kernel - Query pin set as input");
 
@@ -287,68 +284,70 @@ void querySensor(DHT22_data_t *returnData)
         {
             printk("DHT22 Kernel - Error - No sync pulses (80us) found");
             returnData->validity = 0;
+            return;
         }
-        else
+
+        debug("DHT22 Kernel - Sync pulses found on %d and %d", idxSync - 2, idxSync - 1);
+
+        // Loop over the stream to decode the actual data
+        uint8_t idxData = 0;
+        for (uint8_t idxBuf = idxSync; idxBuf < 80 + idxSync; idxBuf += 2)
         {
-            debug("DHT22 Kernel - Sync pulses found on %d and %d", idxSync - 2, idxSync - 1);
-
-            // Loop over the stream to decode the actual data
-            uint8_t idxData = 0;
-            for (uint8_t idxBuf = idxSync; idxBuf < 80 + idxSync; idxBuf += 2)
+            // Bit 0 - 50us + 26us
+            // Bit 1 - 50us + 70us
+            if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 6 &&
+                timeBuffer[idxBuf + 1] <= 46)
             {
-                // Bit 0 - 50us + 26us
-                // Bit 1 - 50us + 70us
-                if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 6 &&
-                    timeBuffer[idxBuf + 1] <= 46)
-                {
-                    // Zero - No action
-                    debug("DHT22 Kernel - Measurement - Got a '0' - Time: %d - "
-                          "Dev.: %d",
-                          timeBuffer[idxBuf + 1], timeBuffer[idxBuf + 1] - 26);
-                }
-                else if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 50 &&
-                         timeBuffer[idxBuf + 1] <= 90)
-                {
-                    decodedStream = (decodedStream | (1ULL << (39 - idxData)));
-                    debug("DHT22 Kernel - Measurement - Got a '1' - Time: %d - "
-                          "Dev.: %d",
-                          timeBuffer[idxBuf + 1], timeBuffer[idxBuf + 1] - 70);
-                }
-                else
-                {
-                    printk("DHT22 Kernel - Error - Wrong timing -> %d and %d on "
-                           "idx %d",
-                           timeBuffer[idxBuf], timeBuffer[idxBuf + 1], idxBuf);
-                    returnData->validity = 0;
-                }
-                idxData++;
+                // Zero - No action
+                debug("DHT22 Kernel - Measurement - Got a '0' - Time: %d - "
+                      "Dev.: %d",
+                      timeBuffer[idxBuf + 1], timeBuffer[idxBuf + 1] - 26);
             }
-
-            returnData->humidity = (uint16_t)((decodedStream & 0xAAAAAAFFFF000000) >> (6 * 4));
-            returnData->temperature = (int16_t)((decodedStream & 0xAAAAAA0000FFFF00) >> (2 * 4));
-            returnData->CRC = (uint8_t)((decodedStream & 0xAAAAAA00000000FF) >> (0 * 4));
-
-            uint8_t CRC_calc =
-                (uint8_t)((uint8_t)(returnData->temperature >> 8) + (uint8_t)(returnData->temperature & 0xFF) +
-                          (uint8_t)(returnData->humidity >> 8) + (uint8_t)(returnData->humidity & 0xFF));
-
-            if (returnData->CRC != CRC_calc)
+            else if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 50 &&
+                     timeBuffer[idxBuf + 1] <= 90)
             {
-                printk("DHT22 Kernel - Error - Wrong CRC -> Received %d and "
-                       "Calculated %d",
-                       returnData->CRC, CRC_calc);
-                returnData->validity = 0;
+                decodedStream = (decodedStream | (1ULL << (39 - idxData)));
+                debug("DHT22 Kernel - Measurement - Got a '1' - Time: %d - "
+                      "Dev.: %d",
+                      timeBuffer[idxBuf + 1], timeBuffer[idxBuf + 1] - 70);
             }
             else
             {
-                returnData->validity = 1;
+                printk("DHT22 Kernel - Error - Wrong timing -> %d and %d on "
+                       "idx %d",
+                       timeBuffer[idxBuf], timeBuffer[idxBuf + 1], idxBuf);
+                returnData->validity = 0;
+                return;
             }
+            idxData++;
+        }
+
+        returnData->humidity = (uint16_t)((decodedStream & 0xAAAAAAFFFF000000) >> (6 * 4));
+        returnData->temperature = (int16_t)((decodedStream & 0xAAAAAA0000FFFF00) >> (2 * 4));
+        returnData->CRC = (uint8_t)((decodedStream & 0xAAAAAA00000000FF) >> (0 * 4));
+
+        uint8_t CRC_calc =
+            (uint8_t)((uint8_t)(returnData->temperature >> 8) + (uint8_t)(returnData->temperature & 0xFF) +
+                      (uint8_t)(returnData->humidity >> 8) + (uint8_t)(returnData->humidity & 0xFF));
+
+        if (returnData->CRC != CRC_calc)
+        {
+            printk("DHT22 Kernel - Error - Wrong CRC -> Received %d and "
+                   "Calculated %d",
+                   returnData->CRC, CRC_calc);
+            returnData->validity = 0;
+            return;
+        }
+        else
+        {
+            returnData->validity = 1;
         }
     }
     else
     {
         printk("DHT22 Kernel - Error - Missing edges");
         returnData->validity = 0;
+        return;
     }
 
     // Print obtained values on kernel log

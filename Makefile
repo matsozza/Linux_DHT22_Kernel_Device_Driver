@@ -15,7 +15,7 @@ TAR_DEST := ~
 K_OBJ_FILE = $(patsubst %.o,%.ko,$(obj-m))
 
 # Linux Kernel directory (or Raspberry Pi kernel) for ocmpilation
-KDIR := ./linux
+KDIR := ../linux_rpi
 
 # Cross-Compiler and Architecture
 CROSS_COMPILE := aarch64-rpi3-linux-gnu-

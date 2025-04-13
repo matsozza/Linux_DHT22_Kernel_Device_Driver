@@ -1,0 +1,9 @@
+{
+    "C_Cpp.default.compilerPath": "/usr/bin/aarch64-linux-gnu-gcc",
+    "C_Cpp.default.configurationProvider": null,
+    "files.associations": {
+        "gpio.h": "c",
+        "interrupt.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "enabledIfIncludesResolve"
+}
