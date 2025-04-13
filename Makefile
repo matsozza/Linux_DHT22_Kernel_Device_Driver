@@ -1,8 +1,9 @@
-# Module name
-obj-m := dht22_kernel.o
+# Current directory
+PWD := $(shell pwd)
 
 # Source files
-SRC_FILES := $(wildcard *.c *.h)
+SRC_DIR := $(PWD)/src
+SRC_FILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/*.h)
 
 # Target destination
 TAR_DEV := rpi.local
@@ -10,9 +11,6 @@ TAR_DEST := ~
 
 # Linux Kernel directory (or Raspberry Pi kernel) for ocmpilation
 KDIR := ./linux
-
-# Current directory
-PWD := $(shell pwd)
 
 # Cross-Compiler and Architecture
 CROSS_COMPILE := aarch64-rpi3-linux-gnu-
@@ -23,7 +21,7 @@ all:
 	@echo "Compiling source files to kernel object" | fold -w 48
 	@echo "------------------------------------------------"
 	-clang-format -i $(SRC_FILES) --style=Microsoft --verbose # Try to do linting, if available
-	make -C $(KDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) ARCH=$(ARCH) KBUILD_MODPOST_WARN=1 modules
+	make -C $(KDIR) M=$(SRC_DIR) CROSS_COMPILE=$(CROSS_COMPILE) ARCH=$(ARCH) KBUILD_MODPOST_WARN=1 modules
 
 install:
 	@echo "\n------------------------------------------------"
