@@ -16,9 +16,9 @@
 #define DHT_GPIO_QUERY 22
 #define DHT_GPIO_OFFSET 512
 #define DEVICE_NAME "dht22"
-#define DEBUG 0 /* Debug messages for Kernel module functionality */
+#define DEBUG 1 /* Debug messages for Kernel module functionality */
 
-#if DEBUG == 1
+#if DEBUG == 0
 #define debug(cmd, ...) printk(cmd, ##__VA_ARGS__)
 #else
 #define debug(cmd, ...)                                                                                                \
