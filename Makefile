@@ -12,7 +12,8 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/*.h)
 PY_FILES = $(wildcard $(SRC_DIR)/*.py)
 
 # Target destination
-TAR_DEV := rpi.local
+#TAR_DEV := rpi.local
+TAR_DEV := 192.168.0.78
 TAR_DEST := ~
 
 # Kernel object file
@@ -86,7 +87,7 @@ python:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Testing read from Python file" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh $(TAR_DEV) 'sudo python readData.py'
+	- ssh $(TAR_DEV) 'sudo python dht22.py'
 
 clean:
 	@echo "\n--------------------------------------------------------------------------------"

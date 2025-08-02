@@ -1,7 +1,20 @@
-# DHT22 Temperature and Humidity sensor - Kernel Device Driver
+# 🌡️ DHT22 Kernel Device Driver — Temperature & Humidity Sensor
 
+A custom Linux Kernel Module (LKM) for interfacing with the DHT22 temperature and humidity sensor on Raspberry Pi using GPIO edge detection. Paired with a Python client for user-space access and verification.
 
-## Getting started: 
+---
+
+## 📁 Repository Structure
+
+| Path              | Description                                                              |
+|-------------------|--------------------------------------------------------------------------|
+| `src/dht22_kernel.c` | Kernel module source code that handles GPIO, IRQ, and bitstream decoding |
+| `src/dht22.py`       | Python script to read binary data from `/dev/dht22` and unpack sensor values |
+| `Makefile`           | Build and install automation for both the kernel module and Python test harness |
+
+---
+
+## 🚀 Getting Started
 
 ### Clone Raspberry Linux Kernel as a sibling folder to this repo
 - Repo: https://github.com/raspberrypi/linux.git
@@ -17,5 +30,3 @@
 ### Version used
 The available ".ko" Kernel object in this repo was compiled using:
 - 6.12.21-v8+ SMP preempt mod_unload modversions aarch64
-
-
