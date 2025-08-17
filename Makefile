@@ -14,7 +14,7 @@ PY_FILES = $(wildcard $(SRC_DIR)/*.py)
 # Target destination
 #TAR_DEV := rpi.local
 TAR_DEV := 192.168.0.78
-TAR_DEST := ~
+TAR_DEST := ~/$(MOD_NAME)
 
 # Kernel object file
 K_OBJ_FILE = $(patsubst %.o,%.ko,$(obj-m))
@@ -35,6 +35,12 @@ all:
 
 install:
 	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Creating destination folder in Target" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'sudo mkdir -p $(TAR_DEST)'
+	ssh $(TAR_DEV) 'sudo chmod a+w $(TAR_DEST)'
+
+	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Tranferring Kernel module to Target" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	scp $(SRC_DIR)/$(K_OBJ_FILE) $(TAR_DEV):$(TAR_DEST)
@@ -48,7 +54,7 @@ install:
 	@echo "Installing module in source (removing old if needed)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	- ssh rpi.local 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
-	ssh rpi.local 'sudo insmod $(K_OBJ_FILE)'
+	ssh rpi.local 'sudo insmod $(TAR_DEST)/$(K_OBJ_FILE)'
 	
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Moving module to correct Linux module folders (to be installed in startup)" | fold -w 80
@@ -87,7 +93,7 @@ python:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Testing read from Python file" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh $(TAR_DEV) 'sudo python dht22.py'
+	- ssh $(TAR_DEV) 'sudo python $(TAR_DEST)/dht22.py'
 
 clean:
 	@echo "\n--------------------------------------------------------------------------------"
