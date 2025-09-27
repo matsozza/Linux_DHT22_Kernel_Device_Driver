@@ -2,6 +2,8 @@ import time
 import struct
 from collections import namedtuple
 
+DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity done')
+
 def _read_from_device(device_path, bytes_to_read):
     """Reads data from a device file.
 
@@ -43,7 +45,7 @@ def read_dht22_data():
         print(f"{[hex(d) for d in raw_data]}")
         print(f"{[(d) for d in raw_data]}")
         
-        DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity done')
+
         dht22_data = DHT22_Data_t._make(struct.unpack("<hh???x", raw_data))
 
         print(f"Unpacked data {dht22_data}")
