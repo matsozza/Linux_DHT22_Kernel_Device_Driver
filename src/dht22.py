@@ -8,7 +8,7 @@ DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity don
 # ==============================
 # Configuration
 # ==============================
-LOG_FILE = "/home/matheus/dht22.log"
+LOG_FILE = "/tmp/dht22.log"
 
 # ==============================
 # Setup Logging
