@@ -55,6 +55,8 @@ install:
 	@echo "--------------------------------------------------------------------------------"
 	- ssh rpi.local 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
 	ssh rpi.local 'sudo insmod $(TAR_DEST)/$(K_OBJ_FILE)'
+	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
+
 	
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Moving module to correct Linux module folders (to be installed in startup)" | fold -w 80
@@ -94,6 +96,8 @@ python:
 	@echo "Testing read from Python file" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	- ssh $(TAR_DEV) 'sudo python $(TAR_DEST)/dht22.py'
+	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
+
 
 clean:
 	@echo "\n--------------------------------------------------------------------------------"
