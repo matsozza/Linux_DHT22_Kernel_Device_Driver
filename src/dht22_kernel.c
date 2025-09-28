@@ -26,6 +26,7 @@
     {                                                                                                                  \
     } while (0)
 #endif
+
 // ------------------------------------------------------ Typedef ------------------------------------------------------
 typedef struct
 {
@@ -54,8 +55,8 @@ void querySensor(DHT22_data_t *returnData);
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
-    currTime_us = ktime_to_ns(ktime_get());
-    timeBuffer[nInterrupts++] = (currTime_us - prevTime_us) / 1000;
+    currTime_us = div_u64(ktime_to_ns(ktime_get()), 1000); // ns → us
+    timeBuffer[nInterrupts++] = (uint16_t)(currTime_us - prevTime_us);
     prevTime_us = currTime_us;
     debug("DHT22 Kernel - IRQ triggered! Num: %d -- Time: %d\n", (nInterrupts - 1), timeBuffer[nInterrupts - 1]);
     return IRQ_HANDLED;
@@ -68,6 +69,10 @@ static int dht22_open(struct inode *inode, struct file *file)
         printk("DHT22 Kernel - Resource is busy!");
         return -EBUSY;
     }
+
+    // Reset interrupt buffer
+    nInterrupts = 0;
+    prevTime_us = 0;
 
     // Configure the Query pin as interruptable
     irq = gpio_to_irq(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
@@ -86,6 +91,8 @@ static int dht22_open(struct inode *inode, struct file *file)
     if (!data)
     {
         printk("DHT22 Kernel - Error - Unable to allocate memory in the file space");
+        free_irq(irq, dht22_gpio);
+        irq_requested = false;
         mutex_unlock(&dht22_mutex);
         return -ENOMEM;
     }
@@ -98,12 +105,13 @@ static int dht22_open(struct inode *inode, struct file *file)
 static int dht22_release(struct inode *inode, struct file *file)
 {
     // Configure pin to ignore interrupts
-    if (irq_requested)
+    if (irq_requested && irq >= 0)
     {
         free_irq(irq, dht22_gpio);
+        irq_requested = false;
     }
 
-    if (file != NULL)
+    if (file && file->private_data)
     {
         kfree(file->private_data);
     }
@@ -117,7 +125,6 @@ static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_
 {
     DHT22_data_t *returnData = file->private_data;
 
-    // Query the sensor if first entry in the function
     if (*offset == 0)
     {
         querySensor(returnData);
@@ -130,9 +137,7 @@ static ssize_t dht22_read(struct file *file, char __user *buf, size_t len, loff_
 
     // If offset pointer matches message len (or more), finish
     if (*offset >= sizeof(DHT22_data_t))
-    {
         return 0;
-    }
 
     // If asking to read more info than available, adjust 'len'
     if (len > (sizeof(DHT22_data_t) - *offset))
@@ -156,7 +161,7 @@ static int __init dht22_init(void)
 {
     int ret;
 
-    // Aloca major/minor dinamicamente
+    // Allocate major / minor dinamically
     ret = alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME);
     if (ret < 0)
     {
@@ -164,7 +169,7 @@ static int __init dht22_init(void)
         return ret;
     }
 
-    // Inicializa a estrutura cdev e registra
+    // Init. cdev structure and register
     cdev_init(&dht22_cdev, &fops);
     dht22_cdev.owner = THIS_MODULE;
     ret = cdev_add(&dht22_cdev, dev_num, 1);
@@ -175,7 +180,7 @@ static int __init dht22_init(void)
         return ret;
     }
 
-    // Cria classe e dispositivo em /dev
+    // Create class and device into /dev
     dht22_class = class_create("dht22_class");
     if (IS_ERR(dht22_class))
     {
@@ -194,17 +199,7 @@ static int __init dht22_init(void)
         return -ENODEV;
     }
 
-    /*
-    ret = gpio_request(DHT_GPIO_OFFSET + DHT_GPIO_QUERY, "dht22_data");
-    if (ret) {
-        pr_err("DHT22 Kernel - GPIO already in use or request failed\n");
-        return ret;
-    }
-    */
-
-    debug("DHT22 Kernel - Data query pin successfully requested\n");
-
-    // End of device registering - return success.
+    // End of device registering - All ok
     printk("DHT22 driver loaded! Device created at /dev/%s\n", DEVICE_NAME);
     return 0;
 }
@@ -213,23 +208,24 @@ static void __exit dht22_exit(void)
 {
     printk("DHT22 driver unloaded\n");
 
-    // Desativa interrupção (se registrada)
-    if (irq > 0)
+    // Deactivate irq (if registered)
+    if (irq_requested && irq >= 0)
         free_irq(irq, dht22_gpio);
 
-    // Libera o GPIO
+    // Release GPIO
     if (dht22_gpio)
         gpiod_put(dht22_gpio);
 
-    // Remove o device (se criado)
-    if (dev_num)
+    // Remove device (if prev. created)
+    if (dht22_class && dev_num)
         device_destroy(dht22_class, dev_num);
 
-    // Destroi a classe
+    // Destroy class
     if (dht22_class)
         class_destroy(dht22_class);
 
-    // Libera o número major (se alocado)
+    // Release major/minor number (if allocated)
+    cdev_del(&dht22_cdev);
     unregister_chrdev_region(dev_num, 1);
 }
 
