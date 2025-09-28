@@ -44,6 +44,7 @@ static struct class *dht22_class;
 static struct gpio_desc *dht22_gpio;
 uint64_t prevTime_us = 0, currTime_us = 0;
 int irq_number, irq = -1;
+uint8_t irq_requested = false;
 uint16_t timeBuffer[86], nInterrupts = 0;
 
 // ----------------------------------------------------- Prototypes ----------------------------------------------------
@@ -78,6 +79,7 @@ static int dht22_open(struct inode *inode, struct file *file)
         mutex_unlock(&dht22_mutex);
         return -EPERM;
     }
+    irq_requested = true;
 
     DHT22_data_t *data;
     data = kzalloc(sizeof(DHT22_data_t), GFP_KERNEL);
@@ -89,15 +91,23 @@ static int dht22_open(struct inode *inode, struct file *file)
     }
     file->private_data = data;
 
-    debug("DHT22 Kernel - File opened succesfully");
+    debug("DHT22 Kernel - File opened successfully");
     return 0;
 }
 
 static int dht22_release(struct inode *inode, struct file *file)
 {
     // Configure pin to ignore interrupts
-    free_irq(irq, dht22_gpio);
-    kfree(file->private_data);
+    if (irq_requested)
+    {
+        free_irq(irq, dht22_gpio);
+    }
+
+    if (file != NULL)
+    {
+        kfree(file->private_data);
+    }
+
     debug("DHT22 Kernel - File released succesfully");
     mutex_unlock(&dht22_mutex);
     return 0;
