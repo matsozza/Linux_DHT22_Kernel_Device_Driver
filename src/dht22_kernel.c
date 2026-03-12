@@ -218,8 +218,8 @@ static void __exit dht22_exit(void)
 
     // Release GPIO
     // FIXME: Not needed since there's no 'gpiod_get'
-    if (dht22_gpio)
-        gpiod_put(dht22_gpio);
+    //if (dht22_gpio)
+        //gpiod_put(dht22_gpio);
 
     // Remove device (if prev. created)
     if (dht22_class && dev_num)
