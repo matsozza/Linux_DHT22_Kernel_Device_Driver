@@ -55,10 +55,14 @@ void querySensor(DHT22_data_t *returnData);
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
-    currTime_us = div_u64(ktime_to_ns(ktime_get()), 1000); // ns → us
-    timeBuffer[nInterrupts++] = (uint16_t)(currTime_us - prevTime_us);
-    prevTime_us = currTime_us;
-    debug("DHT22 Kernel - IRQ triggered! Num: %d -- Time: %d\n", (nInterrupts - 1), timeBuffer[nInterrupts - 1]);
+    if(nInterrupts < 86) /* To prevent overflow */
+    {
+        //currTime_us = div_u64(ktime_to_ns(ktime_get()), 1000); // ns → us
+        currTime_us = ktime_get_ns() / 1000;
+        timeBuffer[nInterrupts++] = (uint16_t)(currTime_us - prevTime_us);
+        prevTime_us = currTime_us;
+        debug("DHT22 Kernel - IRQ triggered! Num: %d -- Time: %d\n", (nInterrupts - 1), timeBuffer[nInterrupts - 1]);
+    }
     return IRQ_HANDLED;
 }
 
@@ -213,6 +217,7 @@ static void __exit dht22_exit(void)
         free_irq(irq, dht22_gpio);
 
     // Release GPIO
+    // FIXME: Not needed since there's no 'gpiod_get'
     if (dht22_gpio)
         gpiod_put(dht22_gpio);
 
@@ -264,7 +269,7 @@ void querySensor(DHT22_data_t *returnData)
     debug("DHT22 Kernel - Query pin set as input");
 
     // Wait 20ms
-    msleep(20);
+    usleep_range(20000, 21000);
 
     // Process the received buffer to extract valid data
     debug("DHT22 Kernel - Total interrupts captured: %d", nInterrupts);

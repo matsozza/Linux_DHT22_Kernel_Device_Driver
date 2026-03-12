@@ -12,18 +12,17 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/*.h)
 PY_FILES = $(wildcard $(SRC_DIR)/*.py)
 
 # Target destination
-#TAR_DEV := rpi.local
-TAR_DEV := 192.168.0.78
+TAR_DEV := matheus@192.168.0.78
 TAR_DEST := ~/$(MOD_NAME)
 
 # Kernel object file
 K_OBJ_FILE = $(patsubst %.o,%.ko,$(obj-m))
 
 # Linux Kernel directory (or Raspberry Pi kernel) for ocmpilation
-KDIR := ../linux_rpi
+KDIR := ../linux
 
 # Cross-Compiler and Architecture
-CROSS_COMPILE := aarch64-rpi3-linux-gnu-
+CROSS_COMPILE := aarch64-linux-gnu-
 ARCH := arm64
 
 all:
@@ -53,16 +52,16 @@ install:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Installing module in source (removing old if needed)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh rpi.local 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
-	ssh rpi.local 'sudo insmod $(TAR_DEST)/$(K_OBJ_FILE)'
+	- ssh $(TAR_DEV) 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
+	ssh $(TAR_DEV) 'sudo insmod -f $(TAR_DEST)/$(K_OBJ_FILE)'
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
 
 	
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Moving module to correct Linux module folders (to be installed in startup)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh rpi.local 'sudo mkdir /lib/modules/$(uname -r)/extra'
-	ssh rpi.local 'sudo mv -f $(TAR_DEST)/$(K_OBJ_FILE) /lib/modules/$(uname -r)/extra'
+	- ssh $(TAR_DEV) 'sudo mkdir /lib/modules/$(uname -r)/extra'
+	ssh $(TAR_DEV) 'sudo mv -f $(TAR_DEST)/$(K_OBJ_FILE) /lib/modules/$(uname -r)/extra'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Checking kernel logs" | fold -w 80
@@ -72,7 +71,7 @@ install:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Adding module to /etc/modules script" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	@ssh rpi.local \
+	@ssh $(TAR_DEV) \
 	'if grep "$(MOD_NAME)" /etc/modules > /dev/null; then \
 		echo "File already present in /etc/modules"; \
 	else \
