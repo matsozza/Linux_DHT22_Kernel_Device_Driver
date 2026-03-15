@@ -11,14 +11,15 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/atomic.h>
 
 // ------------------------------------------------ Macros & Defines ---------------------------------------------------
 #define DHT_GPIO_QUERY 22
 #define DHT_GPIO_OFFSET 512
 #define DEVICE_NAME "dht22"
-#define DEBUG 0 /* Debug messages for Kernel module functionality */
+#define DEBUG 1 /* Debug messages for Kernel module functionality */
 
-#if DEBUG == 0
+#if DEBUG == 1
 #define debug(cmd, ...) printk(cmd, ##__VA_ARGS__)
 #else
 #define debug(cmd, ...)                                                                                                \
@@ -46,7 +47,9 @@ static struct gpio_desc *dht22_gpio;
 uint64_t prevTime_us = 0, currTime_us = 0;
 int irq_number, irq = -1;
 uint8_t irq_requested = false;
-uint16_t timeBuffer[86], nInterrupts = 0;
+uint16_t timeBuffer[86];
+volatile uint16_t nInterrupts = 0;
+static atomic_t is_reading = ATOMIC_INIT(0);
 
 // ----------------------------------------------------- Prototypes ----------------------------------------------------
 void querySensor(DHT22_data_t *returnData);
@@ -55,13 +58,16 @@ void querySensor(DHT22_data_t *returnData);
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
-    if(nInterrupts < 86) /* To prevent overflow */
+    // Ignore interrupts if we aren't actively listening for sensor data
+    if (atomic_read(&is_reading) == 1)
     {
-        //currTime_us = div_u64(ktime_to_ns(ktime_get()), 1000); // ns → us
-        currTime_us = ktime_get_ns() / 1000;
-        timeBuffer[nInterrupts++] = (uint16_t)(currTime_us - prevTime_us);
-        prevTime_us = currTime_us;
-        debug("DHT22 Kernel - IRQ triggered! Num: %d -- Time: %d\n", (nInterrupts - 1), timeBuffer[nInterrupts - 1]);
+        uint64_t now_ns = ktime_to_ns(ktime_get());
+        if (nInterrupts < 86)
+        {
+            timeBuffer[nInterrupts] = (uint16_t)((now_ns - prevTime_us) / 1000);
+            prevTime_us = now_ns;
+            nInterrupts++;
+        }
     }
     return IRQ_HANDLED;
 }
@@ -74,13 +80,10 @@ static int dht22_open(struct inode *inode, struct file *file)
         return -EBUSY;
     }
 
-    // Reset interrupt buffer
-    nInterrupts = 0;
-    prevTime_us = 0;
 
     // Configure the Query pin as interruptable
     irq = gpio_to_irq(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
-    int ret = request_irq(irq, dht22_irq_handler, IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, "dht22_irq", dht22_gpio);
+    int ret = request_irq(irq, dht22_irq_handler, IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN, "dht22_irq", dht22_gpio);
 
     if (ret)
     {
@@ -216,11 +219,6 @@ static void __exit dht22_exit(void)
     if (irq_requested && irq >= 0)
         free_irq(irq, dht22_gpio);
 
-    // Release GPIO
-    // FIXME: Not needed since there's no 'gpiod_get'
-    //if (dht22_gpio)
-        //gpiod_put(dht22_gpio);
-
     // Remove device (if prev. created)
     if (dht22_class && dev_num)
         device_destroy(dht22_class, dev_num);
@@ -238,6 +236,10 @@ void querySensor(DHT22_data_t *returnData)
 {
     int status;
 
+    atomic_set(&is_reading, 1);
+    enable_irq(irq);
+    nInterrupts = 0;
+
     // Configure pin as output
     status = gpiod_direction_output(dht22_gpio, 1);
     if (status)
@@ -250,7 +252,7 @@ void querySensor(DHT22_data_t *returnData)
 
     // Get the first reference timestamp - before querying the sensor
     prevTime_us = ktime_to_ns(ktime_get());
-    debug("DHT22 Kernel - First timestamp before first edge - %llu us.", prevTime_us);
+    debug("DHT22 Kernel - First timestamp before first edge - %llu ns.", prevTime_us);
 
     // Query the DHT22
     gpiod_set_value(dht22_gpio, 0); // Set LOW
@@ -268,17 +270,21 @@ void querySensor(DHT22_data_t *returnData)
     }
     debug("DHT22 Kernel - Query pin set as input");
 
+
     // Wait 20ms
     usleep_range(20000, 21000);
 
     // Process the received buffer to extract valid data
     debug("DHT22 Kernel - Total interrupts captured: %d", nInterrupts);
 
-    // Valdate and process the results
+    disable_irq(irq);
+    atomic_set(&is_reading, 0);
+
+    // Validate and process the results
     if (nInterrupts >= 85 && nInterrupts <= 87)
     {
         uint64_t decodedStream = 0;
-        // Check for the 20000ms query + the answer of the two 80us sync pulses
+        // Check for the 20ms query + the answer of the two 80us sync pulses
         uint8_t syncCntr = 0, idxSync;
         for (idxSync = 0; idxSync < 5; idxSync++)
         {
@@ -374,7 +380,6 @@ void querySensor(DHT22_data_t *returnData)
         debug("DHT22 Kernel - Values obtained - Temp: -- C and Humidity: -- %%");
     }
     returnData->done = 1;
-    nInterrupts = 0;
 }
 
 // ------------------------------------------------ Module metadata --------------------------------------------------
