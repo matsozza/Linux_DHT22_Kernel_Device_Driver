@@ -31,6 +31,7 @@ all:
 	@echo "--------------------------------------------------------------------------------"
 	-clang-format -i $(SRC_FILES) --style=Microsoft --verbose # Try to do linting, if available
 	make -C $(KDIR) M=$(SRC_DIR) CROSS_COMPILE=$(CROSS_COMPILE) ARCH=$(ARCH) KBUILD_MODPOST_WARN=1 modules
+	modinfo $(SRC_DIR)/$(MOD_NAME).ko
 
 install:
 	@echo "\n--------------------------------------------------------------------------------"
@@ -53,7 +54,7 @@ install:
 	@echo "Installing module in source (removing old if needed)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	- ssh $(TAR_DEV) 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
-	ssh $(TAR_DEV) 'sudo insmod -f $(TAR_DEST)/$(K_OBJ_FILE)'
+	ssh $(TAR_DEV) 'sudo insmod $(TAR_DEST)/$(K_OBJ_FILE)'
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
 
 	
@@ -94,8 +95,8 @@ python:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Testing read from Python file" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh $(TAR_DEV) 'sudo python $(TAR_DEST)/dht22.py'
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
+	- ssh $(TAR_DEV) 'python $(TAR_DEST)/dht22.py'
 
 
 clean:

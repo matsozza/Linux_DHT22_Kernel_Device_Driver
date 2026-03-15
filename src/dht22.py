@@ -1,6 +1,7 @@
 import time
 import struct
 import logging
+import os
 from collections import namedtuple
 
 DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity done')
@@ -13,9 +14,17 @@ LOG_FILE = "/tmp/dht22.log"
 # ==============================
 # Setup Logging
 # ==============================
+# Remove the file if it exists
+if os.path.exists(LOG_FILE):
+    os.remove(LOG_FILE)
+
+# Recreate it (it will be empty and owned by the current user)
+with open(LOG_FILE, "w") as f:
+    f.write("Log started\n")
+
 logging.basicConfig(
     filename=LOG_FILE,
-    level=logging.ERROR,
+    level=logging.INFO,
     format="%(asctime)s %(levelname)s: %(message)s"
 )
 logger = logging.getLogger("DHT22")
@@ -64,14 +73,16 @@ def read_dht22_data():
         dht22_data = DHT22_Data_t._make(struct.unpack("<hh???x", raw_data))
 
         logger.info(f"Unpacked data {dht22_data}")
-        if dht22_data.validity and dht22_data.done:
-            logger.info(f"Temperature: {dht22_data.temperature/10}")
-            logger.info(f"Humidity: {dht22_data.humidity/10}")
-        else:
-            logger.error("Error - Invalid CRC or data not ready")
-        return dht22_data
     else:
-        return None
+        dht22_data = DHT22_Data_t(temperature=0, humidity=0, CRC=0, validity=False, done=True)
+    
+    if dht22_data.validity and dht22_data.done:
+        logger.info(f"Temperature: {dht22_data.temperature/10}")
+        logger.info(f"Humidity: {dht22_data.humidity/10}")
+    else:
+        logger.error("Error - Invalid CRC or data error - Skipping")
+
+    return dht22_data
 
 if __name__ == "__main__":
     read_dht22_data()
