@@ -53,7 +53,7 @@ install:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Installing module in source (removing old if needed)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh $(TAR_DEV) 'sudo rmmod $(patsubst %.o, %, $(obj-m))'
+	- ssh $(TAR_DEV) 'sudo rmmod -f $(patsubst %.o, %, $(obj-m))'
 	ssh $(TAR_DEV) 'sudo insmod $(TAR_DEST)/$(K_OBJ_FILE)'
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
 
