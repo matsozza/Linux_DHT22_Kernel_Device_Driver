@@ -40,16 +40,17 @@ typedef struct
 
 // ---------------------------------------------------- Global Vars ----------------------------------------------------
 static DEFINE_MUTEX(dht22_mutex);
+
 static dev_t dev_num;
 static struct cdev dht22_cdev;
 static struct class *dht22_class;
 static struct gpio_desc *dht22_gpio;
-uint64_t prevTime_us = 0, currTime_us = 0;
-int irq_number, irq = -1;
-uint8_t irq_requested = false;
+
+uint64_t prevTime_ns = 0;
+int irq = -1;
+
 uint16_t timeBuffer[86];
-volatile uint16_t nInterrupts = 0;
-static atomic_t is_reading = ATOMIC_INIT(0);
+static atomic_t nInterrupts = ATOMIC_INIT(86);
 
 // ----------------------------------------------------- Prototypes ----------------------------------------------------
 void querySensor(DHT22_data_t *returnData);
@@ -58,73 +59,85 @@ void querySensor(DHT22_data_t *returnData);
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
+    // Increment 'nInterrupts' and keep a local statyic copy to avoid race condition
+    uint64_t nInterrupts_loc = atomic_inc_return(&nInterrupts) - 1;
+    
+    // Same assumption as 'nInterrupts' but for 'prevTime'
+    uint64_t prevTime_ns_loc = prevTime_ns;
+    
     // Ignore interrupts if we aren't actively listening for sensor data
-    if (atomic_read(&is_reading) == 1)
+    if (nInterrupts_loc < 86)
     {
         uint64_t now_ns = ktime_to_ns(ktime_get());
-        if (nInterrupts < 86)
-        {
-            timeBuffer[nInterrupts] = (uint16_t)((now_ns - prevTime_us) / 1000);
-            prevTime_us = now_ns;
-            nInterrupts++;
-        }
+        timeBuffer[nInterrupts_loc] = (uint16_t)((now_ns - prevTime_ns_loc) / 1000);
+        prevTime_ns = now_ns;
     }
     return IRQ_HANDLED;
 }
 
 static int dht22_open(struct inode *inode, struct file *file)
 {
+    DHT22_data_t *data;
+    int ret;
+
+    // Mutex check to prevent multiple concurrent opens
     if (!mutex_trylock(&dht22_mutex))
     {
         printk("DHT22 Kernel - Resource is busy!");
         return -EBUSY;
     }
 
-
-    // Configure the Query pin as interruptable
-    irq = gpio_to_irq(DHT_GPIO_OFFSET + DHT_GPIO_QUERY);
-    int ret = request_irq(irq, dht22_irq_handler, IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN, "dht22_irq", dht22_gpio);
-
-    if (ret)
-    {
-        printk("DHT Kernel  - Error - Failed to set query pin as interruptable");
-        mutex_unlock(&dht22_mutex);
-        return -EPERM;
-    }
-    irq_requested = true;
-
-    DHT22_data_t *data;
+    // Dynamic Memory Allocation
     data = kzalloc(sizeof(DHT22_data_t), GFP_KERNEL);
     if (!data)
     {
         printk("DHT22 Kernel - Error - Unable to allocate memory in the file space");
-        free_irq(irq, dht22_gpio);
-        irq_requested = false;
         mutex_unlock(&dht22_mutex);
         return -ENOMEM;
     }
-    file->private_data = data;
 
-    debug("DHT22 Kernel - File opened successfully");
+    // Request IRQ when the device is actually opened
+    irq = gpiod_to_irq(dht22_gpio);
+    if (irq < 0) {
+        ret = irq;
+        goto err_free;
+    }
+
+    // We use IRQ_NO_AUTOEN because we only want it active during the querySensor() burst
+    ret = request_irq(irq, dht22_irq_handler, 
+                      IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_NO_AUTOEN, 
+                      DEVICE_NAME, NULL);
+    if (ret) 
+    {
+        printk("DHT22 Kernel - Error - Failed to request IRQ %d", irq);
+        goto err_free;
+    }
+
+    file->private_data = data;
     return 0;
+
+err_free:
+    kfree(data);
+    mutex_unlock(&dht22_mutex);
+    return ret;
 }
 
 static int dht22_release(struct inode *inode, struct file *file)
 {
-    // Configure pin to ignore interrupts
-    if (irq_requested && irq >= 0)
-    {
-        free_irq(irq, dht22_gpio);
-        irq_requested = false;
+    // Clean up IRQ
+    if (irq >= 0) {
+        free_irq(irq, NULL);
     }
 
-    if (file && file->private_data)
-    {
+    // Free per-file data
+    if (file->private_data) {
         kfree(file->private_data);
     }
 
-    debug("DHT22 Kernel - File released succesfully");
+    // Unlock the device for the next user
     mutex_unlock(&dht22_mutex);
+    
+    pr_info("DHT22: Device closed and resources released\n");
     return 0;
 }
 
@@ -213,32 +226,29 @@ static int __init dht22_init(void)
 
 static void __exit dht22_exit(void)
 {
-    printk("DHT22 driver unloaded\n");
-
-    // Deactivate irq (if registered)
-    if (irq_requested && irq >= 0)
-        free_irq(irq, dht22_gpio);
-
-    // Remove device (if prev. created)
+    // Destroy the device node in /dev first
     if (dht22_class && dev_num)
         device_destroy(dht22_class, dev_num);
 
-    // Destroy class
+    // Destroy the class
     if (dht22_class)
         class_destroy(dht22_class);
 
-    // Release major/minor number (if allocated)
+    // Delete the character device
+    // (This unlinks the fops (open/read/release) from the kernel)
     cdev_del(&dht22_cdev);
+
+    // Finally, release the major/minor numbers
     unregister_chrdev_region(dev_num, 1);
+    printk("DHT22 driver unloaded\n");
 }
 
 void querySensor(DHT22_data_t *returnData)
 {
     int status;
 
-    atomic_set(&is_reading, 1);
+    atomic_set(&nInterrupts, 0);
     enable_irq(irq);
-    nInterrupts = 0;
 
     // Configure pin as output
     status = gpiod_direction_output(dht22_gpio, 1);
@@ -251,8 +261,8 @@ void querySensor(DHT22_data_t *returnData)
     debug("DHT22 Kernel - Query pin set as output");
 
     // Get the first reference timestamp - before querying the sensor
-    prevTime_us = ktime_to_ns(ktime_get());
-    debug("DHT22 Kernel - First timestamp before first edge - %llu ns.", prevTime_us);
+    prevTime_ns = ktime_to_ns(ktime_get());
+    debug("DHT22 Kernel - First timestamp before first edge - %llu ns.", prevTime_ns);
 
     // Query the DHT22
     gpiod_set_value(dht22_gpio, 0); // Set LOW
@@ -270,18 +280,15 @@ void querySensor(DHT22_data_t *returnData)
     }
     debug("DHT22 Kernel - Query pin set as input");
 
-
-    // Wait 20ms
+    // Wait 20~21ms
     usleep_range(20000, 21000);
 
     // Process the received buffer to extract valid data
-    debug("DHT22 Kernel - Total interrupts captured: %d", nInterrupts);
-
     disable_irq(irq);
-    atomic_set(&is_reading, 0);
+    debug("DHT22 Kernel - Total interrupts captured: %d", atomic_read(&nInterrupts));
 
     // Validate and process the results
-    if (nInterrupts >= 85 && nInterrupts <= 87)
+    if (atomic_read(&nInterrupts) >= 85 && atomic_read(&nInterrupts) <= 87)
     {
         uint64_t decodedStream = 0;
         // Check for the 20ms query + the answer of the two 80us sync pulses
