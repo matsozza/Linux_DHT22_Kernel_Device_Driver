@@ -9,25 +9,32 @@ DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity don
 # ==============================
 # Configuration
 # ==============================
-LOG_FILE = "/tmp/dht22.log"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "dht22.log")
 
 # ==============================
 # Setup Logging
 # ==============================
-# Remove the file if it exists
-if os.path.exists(LOG_FILE):
+
+# Check if we can write to it (if not, remove it)
+if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
     os.remove(LOG_FILE)
 
 # Recreate it (it will be empty and owned by the current user)
 with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
+os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s: %(message)s"
-)
 logger = logging.getLogger("DHT22")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+# Individual handler
+if not logger.handlers:
+    fh = logging.FileHandler(LOG_FILE)
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    fh.setLevel(logging.INFO)
+    logger.addHandler(fh)
 
 def _read_from_device(device_path, bytes_to_read):
     """Reads data from a device file.

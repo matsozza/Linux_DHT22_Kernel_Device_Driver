@@ -97,6 +97,7 @@ python:
 	@echo "--------------------------------------------------------------------------------"
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
 	- ssh $(TAR_DEV) 'python $(TAR_DEST)/dht22.py'
+	- ssh $(TAR_DEV) 'cat $(TAR_DEST)/dht22.log'
 
 
 clean:
