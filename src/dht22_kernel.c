@@ -59,7 +59,7 @@ void querySensor(DHT22_data_t *returnData);
 
 static irqreturn_t dht22_irq_handler(int irq, void *dev_id)
 {
-    // Increment 'nInterrupts' and keep a local statyic copy to avoid race condition
+    // Increment 'nInterrupts' and keep a local static copy to avoid race condition
     uint64_t nInterrupts_loc = atomic_inc_return(&nInterrupts) - 1;
     
     // Same assumption as 'nInterrupts' but for 'prevTime'
