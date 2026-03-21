@@ -1,6 +1,7 @@
 import time
 import struct
 import logging
+import getpass
 import os
 from collections import namedtuple
 
@@ -10,20 +11,15 @@ DHT22_Data_t = namedtuple('DHT22_Data_t', 'temperature humidity CRC validity don
 # Configuration
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "dht22.log")
+LOG_FILE = os.path.join(BASE_DIR, f"dht22_{getpass.getuser()}.log")
 
 # ==============================
 # Setup Logging
 # ==============================
 
-# Check if we can write to it (if not, remove it)
-if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
-
-# Recreate it (it will be empty and owned by the current user)
+# Open / Create log file
 with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
-os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("DHT22")
 logger.setLevel(logging.INFO)
