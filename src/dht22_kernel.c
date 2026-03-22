@@ -295,8 +295,8 @@ void querySensor(DHT22_data_t *returnData)
         uint8_t syncCntr = 0, idxSync;
         for (idxSync = 0; idxSync < 5; idxSync++)
         {
-            if (timeBuffer[idxSync] > 19000 && timeBuffer[idxSync] < 21000 && timeBuffer[idxSync + 2] > 50 &&
-                timeBuffer[idxSync + 2] < 100 && timeBuffer[idxSync + 3] > 50 && timeBuffer[idxSync + 3] < 100)
+            if (timeBuffer[idxSync] > 19000 && timeBuffer[idxSync] < 21000 && timeBuffer[idxSync + 2] > 40 &&
+                timeBuffer[idxSync + 2] < 120 && timeBuffer[idxSync + 3] > 40 && timeBuffer[idxSync + 3] < 120)
             {
                 syncCntr = 1;
                 idxSync += 4;
