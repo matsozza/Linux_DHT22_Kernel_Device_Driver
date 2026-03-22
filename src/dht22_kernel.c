@@ -319,16 +319,14 @@ void querySensor(DHT22_data_t *returnData)
         {
             // Bit 0 - 50us + 26us
             // Bit 1 - 50us + 70us
-            if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 6 &&
-                timeBuffer[idxBuf + 1] <= 46)
+            if (timeBuffer[idxBuf + 1] <= 48)
             {
                 // Zero - No action
                 debug("DHT22 Kernel - Measurement - Got a '0' - Time: %d - "
                       "Dev.: %d",
                       timeBuffer[idxBuf + 1], timeBuffer[idxBuf + 1] - 26);
             }
-            else if (timeBuffer[idxBuf] >= 30 && timeBuffer[idxBuf] <= 70 && timeBuffer[idxBuf + 1] >= 50 &&
-                     timeBuffer[idxBuf + 1] <= 90)
+            else if (timeBuffer[idxBuf + 1] > 48)
             {
                 decodedStream = (decodedStream | (1ULL << (39 - idxData)));
                 debug("DHT22 Kernel - Measurement - Got a '1' - Time: %d - "
