@@ -25,6 +25,8 @@ KDIR := ../linux
 CROSS_COMPILE := aarch64-linux-gnu-
 ARCH := arm64
 
+KVER:=6.12.21-v8+
+
 all:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Compiling source files to kernel object" | fold -w 80
@@ -61,8 +63,9 @@ install:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Moving module to correct Linux module folders (to be installed in startup)" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	- ssh $(TAR_DEV) 'sudo mkdir /lib/modules/$(uname -r)/extra'
-	ssh $(TAR_DEV) 'sudo mv -f $(TAR_DEST)/$(K_OBJ_FILE) /lib/modules/$(uname -r)/extra'
+	ssh $(TAR_DEV) 'sudo mkdir -p /lib/modules/$(KVER)/extra'
+	ssh $(TAR_DEV) 'sudo mv -f $(TAR_DEST)/$(K_OBJ_FILE) /lib/modules/$(KVER)/extra'
+	ssh $(TAR_DEV) 'sudo depmod -a $(KVER)'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Checking kernel logs" | fold -w 80
@@ -97,8 +100,7 @@ python:
 	@echo "--------------------------------------------------------------------------------"
 	ssh $(TAR_DEV) 'sudo chmod 777 $(TAR_DEST)/dht22.py'
 	- ssh $(TAR_DEV) 'python $(TAR_DEST)/dht22.py'
-	- ssh $(TAR_DEV) 'cat $(TAR_DEST)/dht22.log'
-
+	- ssh $(TAR_DEV) 'cat $(TAR_DEST)/dht22_matheus.log'
 
 clean:
 	@echo "\n--------------------------------------------------------------------------------"
