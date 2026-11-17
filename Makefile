@@ -12,7 +12,7 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/*.h)
 PY_FILES = $(wildcard $(SRC_DIR)/*.py)
 
 # Target destination
-TAR_DEV := matheus@192.168.0.78
+TAR_DEV := matheus@192.168.15.9
 TAR_DEST := ~/$(MOD_NAME)
 
 # Kernel object file
